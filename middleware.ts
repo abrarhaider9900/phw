@@ -2,14 +2,10 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function middleware(request: NextRequest) {
-    let supabaseResponse = NextResponse.next({ request });
+    const response = NextResponse.next();
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-    if (!supabaseUrl || !supabaseAnonKey) {
-        return supabaseResponse;
-    }
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
     try {
         const supabase = createServerClient(
@@ -20,14 +16,10 @@ export async function middleware(request: NextRequest) {
                     getAll() {
                         return request.cookies.getAll();
                     },
-                    setAll(cookiesToSet: any[]) {
-                        cookiesToSet.forEach(({ name, value }) =>
-                            request.cookies.set(name, value)
-                        );
-                        supabaseResponse = NextResponse.next({ request });
-                        cookiesToSet.forEach(({ name, value, options }) =>
-                            supabaseResponse.cookies.set(name, value, options)
-                        );
+                    setAll(cookies: any[]) {
+                        cookies.forEach(({ name, value, options }) => {
+                            response.cookies.set(name, value, options);
+                        });
                     },
                 },
             }
@@ -39,32 +31,29 @@ export async function middleware(request: NextRequest) {
 
         const pathname = request.nextUrl.pathname;
 
-        // Admin routes
-        if (pathname.startsWith("/admin")) {
+        // Protected routes
+        const protectedPaths = ["/admin", "/dashboard", "/profile", "/following", "/discover"];
+
+        if (protectedPaths.some((p) => pathname.startsWith(p))) {
             if (!user) {
                 return NextResponse.redirect(new URL("/login", request.url));
             }
         }
 
-        // User routes
-        const userOnlyPaths = ["/dashboard", "/profile", "/following", "/discover"];
-        if (userOnlyPaths.some((p) => pathname.startsWith(p))) {
-            if (!user) {
-                return NextResponse.redirect(new URL("/login", request.url));
-            }
-        }
-
-        // Auth pages
+        // Auth routes
         if (pathname === "/login" || pathname === "/register") {
             if (user) {
                 return NextResponse.redirect(new URL("/dashboard", request.url));
             }
         }
-    } catch (error) {
-        console.error("Middleware error:", error);
-    }
 
-    return supabaseResponse;
+        return response;
+    } catch (error) {
+        console.error("Middleware crash:", error);
+
+        // 🔥 IMPORTANT: fail gracefully
+        return NextResponse.next();
+    }
 }
 
 export const config = {
